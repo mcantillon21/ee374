@@ -36,6 +36,10 @@ class MarabuNode {
         this.initialize();
     }
 
+    log(id, str) {
+        console.log("[PEER #"+id+"] " + str);
+    }
+
     build_peers() {
         const peer_str = fs.readFileSync('./peers.json', 'utf8'); //readFile('./file.json');
         this.discovered_peers = new Set(JSON.parse(peer_str));
@@ -79,11 +83,10 @@ class MarabuNode {
             this.connections[id].buffer = packets.pop();
         }
 
-        console.log("======> Parsing packets");
-        console.log(packets);
-        console.log("<==============");
+        this.log(id, "Got packets: ");
+        this.log(id, JSON.stringify(packets));
         if (this.connections[id].buffer.length != 0) {
-            console.log("Buffer: > " + this.connections[id].buffer + " <");
+            this.log(id, "Buffer: " + this.connections[id].buffer);
         }
         
 
@@ -96,32 +99,47 @@ class MarabuNode {
             console.log(`Marabu node started on port ${port}.`);
         });
 
+        if (this.port != 18018) {
+            this.connect_to_peer('144.202.103.247:18018', false, true);
+        }
+    }
+
+    connect_to_network() {
         this.connect_to_peer("149.28.220.241:18018", true);
-
-        // if (this.port != 18018) {
-        //     this.connect_to_peer('144.202.103.247:18018', true);
-        // }
     }
 
-    send(id, msg) {
-        console.log(msg);
-        this.connections[id].socket.write(canonicalize(msg)+'\n');
+    send(id, msg, callback=null) {
+        if (this.connections[id].active) {
+            console.log('sending');
+            this.log(id, "Sent message: " + JSON.stringify(msg));
+            this.connections[id].socket.write(canonicalize(msg)+'\n', callback);
+        }
     }
 
-    send_error(id, msg) {
-        console.log('[ERROR] ' + msg);
+    send_error(id, msg, callback=null) {
         let err = { "type": "error", "error": msg };
-        this.send(id, err);
+        this.send(id, err, callback);
     }
 
-    send_peers(id, peers) {
+    send_peers(id, peers, callback=null) {
         let msg = { "type": "peers", "peers": peers};
-        this.send(id, msg);
+        this.send(id, msg, callback);
+    }
+
+    close_socket(id) {
+        this.connections[id].socket.end();
+        this.connections[id].active = false;
     }
 
     receive_packet(id, packet_str) {
+        // Make sure this packet is from an active connection
+        if (!this.connections[id].active) {
+            return;
+        }
+
         if (!this.isJsonString(packet_str)) {
             this.send_error(id, 'Invalid packet format');
+            return;
         }
 
         let msg = JSON.parse(packet_str);
@@ -131,18 +149,21 @@ class MarabuNode {
         }
 
         
-        console.log('[SERVER] Got message of type: ' + msg.type);
-        console.log('             => ' + packet_str);
+        this.log(id, "Processing packet " + JSON.stringify(msg));
 
         if (!this.connections[id].got_hello) {
             if (msg.type != "hello") {
                 this.send_error(id, 'Did not receive hello message first.');
-                // close connection
+                this.close_socket(id);
+                // , function() {
+                // });
+                return;
             } else if (msg.version != HELLO_MSG.version) {
                 this.send_error(id, 'Maribu node version is incorrect.');
-                // close connection
+                this.close_socket(id);
+                return;
             } else {
-                console.log('[Server] Got hello.');
+                this.log(id, 'Received hello.');
                 this.connections[id].got_hello = true;
             }
         }
@@ -153,9 +174,12 @@ class MarabuNode {
                 this.send_peers(id, Array.from(this.discovered_peers));
                 break;
             case "peers":
-                console.log("New peers:");
-                console.log(msg.peers);
+                if (!Array.isArray(msg.peers)) {
+                    this.send_error(id, "Malformed peers list");
+                    break;
+                }
 
+                  this.log(id, "Got new peers: " + JSON.stringify(msg.peers));
                 msg.peers.forEach(peer => this.discovered_peers.add(peer));
                 this.write_peers();
                 break;
@@ -163,7 +187,7 @@ class MarabuNode {
         }
     }
 
-    connect_to_peer(addr, get_peers) {
+    connect_to_peer(addr, get_peers, grader=false) {
         console.log('connecting to peer ' + addr);
         const idx = addr.lastIndexOf(':');
         const host = addr.slice(0, idx);
@@ -178,7 +202,7 @@ class MarabuNode {
         // Create a new TCP client.
         const client = new Net.Socket();
 
-        this.connections[id] = { 'socket': client, 'buffer': '', got_hello: false  };
+        this.connections[id] = { 'socket': client, 'buffer': '', got_hello: false, active: true };
 
         // Send a connection request to the server.
         client.connect({ port: port, host: host }, function() {
@@ -193,6 +217,23 @@ class MarabuNode {
             if (get_peers) {
                 self.send(id, GETPEERS_MSG);
             }
+
+            if (grader) {
+                self.send(id, GETPEERS_MSG);
+
+
+
+                setTimeout(function() {
+                    self.connections[id].socket.write("{\"type\":\"ge");
+                    setTimeout(function() {
+                        self.connections[id].socket.write("tpeers\"}");
+
+                        setTimeout(function() {
+                            self.send(id, {"type":"diufygeuybhv"});
+                        }, 400);
+                    }, 100);
+                }, 1000);
+            }
             
         });
         
@@ -203,6 +244,18 @@ class MarabuNode {
             for (let packet_str of packets) {
                 self.receive_packet(id, packet_str);
             }
+        });
+
+        // When the client requests to end the TCP connection with the server, the server
+        // ends the connection.
+        client.on('end', function() {
+            self.log(id, 'Ended connection with the client');
+            self.connections[id].active = false;
+            self.connections[id].socket.destroy();
+        });
+
+        client.on('error', function(err) {
+            self.log(id, `Error: ${err}`);
         });
     
     }
@@ -218,10 +271,11 @@ class MarabuNode {
             console.log('A new connection has been established.');
 
             let id = self.get_id();
-            self.connections[id] = { 'socket': socket, 'buffer': '', got_hello: false  };
+            self.connections[id] = { 'socket': socket, 'buffer': '', got_hello: false, active: true  };
 
             
             self.send(id, HELLO_MSG);
+            self.send(id, GETPEERS_MSG);
 
             // The server can also receive data from the client by reading from its socket.
             socket.on('data', function(chunk) {
@@ -234,12 +288,13 @@ class MarabuNode {
             // When the client requests to end the TCP connection with the server, the server
             // ends the connection.
             socket.on('end', function() {
-                console.log('Closing connection with the client');
+                self.log(id, 'Closing connection with the client');
+                self.connections[id].active = false;
             });
 
             // Don't forget to catch error, for your own sake.
             socket.on('error', function(err) {
-                console.log(`Error: ${err}`);
+                self.log(id, `Error: ${err}`);
             });
         });
 
@@ -259,6 +314,4 @@ console.log(`Starting on port ${port}...`);
 
 let node = new MarabuNode(port);
 node.start();
-
-
-module.exports = MarabuNode;
+node.connect_to_network();
