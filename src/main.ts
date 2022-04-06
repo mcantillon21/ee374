@@ -93,7 +93,11 @@ class MarabuNode {
         try {
             JSON.parse(str);
         } catch (e) {
-            return false;
+            if (e.message == "Unexpected end of JSON input") {
+                return 'partial';
+            } else {
+                return false;
+            }
         }
         return true;
     }
@@ -113,7 +117,8 @@ class MarabuNode {
         }
 
         // if last element incomplete
-        if (!this.isJsonString(packets[packets.length - 1])) {
+        let json_valid = this.isJsonString(packets[packets.length - 1])
+        if (json_valid == 'partial') {
             this.connections[id].buffer = packets.pop();
         }
 
@@ -148,7 +153,12 @@ class MarabuNode {
 
     send(id, msg, callback=null) {
         if (this.connections[id].active) {
-            this.log(id, "SENT message of type " + msg.type);// + JSON.stringify(msg));
+            if (msg.type == 'error') {
+                this.warn(id, "SENT error: " + JSON.stringify(msg));
+            } else {
+                this.log(id, "SENT message of type " + msg.type);// + JSON.stringify(msg));
+
+            }
             this.connections[id].socket.write(canonicalize(msg)+'\n', callback);
         }
     }
