@@ -69,7 +69,7 @@ class MarabuNode {
     }
 
 
-    log_str(id, str) { return `[Peer ${id} @ ${this.connections[id].addr}] ${str}`}
+    log_str(id, str) { return `[Peer ${id} @ ${this.connections[id].address}] ${str}`}
     error(id, str) { this.logger.error(this.log_str(id, str)); }
     warn(id, str)  { this.logger.warn( this.log_str(id, str)); }
     log(id, str) {   this.logger.info (this.log_str(id, str)); }
@@ -119,7 +119,7 @@ class MarabuNode {
 
         this.debug(id, "Got packets: " + JSON.stringify(packets).slice(0, 60) + "...");
         if (this.connections[id].buffer.length != 0) {
-            this.debug(id, "Buffer: " + this.connections[id].buffer);
+            this.debug(id, "Buffer: " + this.connections[id].buffer.slice(0, 30) + "..." + this.connections[id].buffer.slice(this.connections[id].buffer.length-30));
         }
         
 
@@ -139,7 +139,7 @@ class MarabuNode {
 
     connect_to_network() {
         this.connect_to_peer("149.28.220.241:18018", true);
-        for (let peer of Array.from(this.discovered_peers).slice(0, 50)) {
+        for (let peer of Array.from(this.discovered_peers).slice(0, 1)) {
             this.connect_to_peer(peer, true);
         }
         
@@ -224,9 +224,9 @@ class MarabuNode {
         }
     }
 
-    connect_handler(id) {
-        let addr = JSON.stringify(this.connections[id].socket.address());
-        this.log(id, 'New TCP connection established with ' + addr);
+    connect_handler(id, incoming) {
+        let addr = JSON.stringify(this.connections[id].address);
+        this.log(id, `New ${incoming ? 'incoming' : 'outgoing'} TCP connection established with ` + addr);
 
         // The client can now send data to the server by writing to its socket.
         this.send(id, HELLO_MSG);
@@ -267,7 +267,7 @@ class MarabuNode {
             'buffer': '', 
             got_hello: false, 
             active: true,
-            addr: addr,
+            address: addr,
         };
 
         this.log(id,'connecting to peer ' + addr + ' (on host ' + host + ' and port:' + port + ')');
@@ -300,7 +300,7 @@ class MarabuNode {
 
         // Send a connection request to the server.
         try {
-            client.connect({ port: port, host: host }, () => { this.connect_handler(id) });
+            client.connect({ port: port, host: host }, () => { this.connect_handler(id, false) });
         } catch(err) {
             self.error(id, `Connection error: ${err}`);
         }
@@ -318,9 +318,10 @@ class MarabuNode {
             console.log('A new connection has been established.');
 
             let id = self.get_id();
-            self.connections[id] = { 'socket': socket, 'buffer': '', got_hello: false, active: true  };
+            
+            self.connections[id] = { 'socket': socket, 'buffer': '', got_hello: false, active: true, address: socket.address().address  };
 
-            self.connect_handler(id);
+            self.connect_handler(id, true);
 
             // The server can also receive data from the client by reading from its socket.
             socket.on('data', function(chunk) {

@@ -1,0 +1,9 @@
+{
+	"types": [ "node" ],
+	"typeRoots": [ "../node_modules/@types" ],
+	"compilerOptions": {
+        	"types": ["node"],
+		"module": "commonjs",
+		"lib": ["es6"]
+    	}
+}
