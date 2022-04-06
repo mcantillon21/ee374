@@ -1,6 +1,8 @@
+const winston = require("winston");
 const Net = require('net');
 const canonicalize = require('canonicalize');
 const fs = require('fs');
+
 
 // import { readFile } from 'fs/promises';
 
@@ -17,6 +19,7 @@ class MarabuNode {
     port;
     server;
     clients;
+    logger;
 
     // packet_builder = {"id": ["{{asdf}", ", asdf", ..]};
 
@@ -31,21 +34,52 @@ class MarabuNode {
         this.port = port;
         this.id_counter = 0;
 
+        let alignColorsAndTime = winston.format.combine(
+            winston.format.colorize({
+                all:true
+            }),
+            winston.format.label({
+                label:'[LOGGER]'
+            }),
+            winston.format.timestamp({
+                format:"YY-MM-DD HH:MM:SS"
+            }),
+            winston.format.printf(
+                info => ` ${info.label}  ${info.timestamp}  ${info.level} : ${info.message}`
+            )
+        );
+
+        this.logger = winston.createLogger({
+            level: "debug",
+            transports: [
+                new (winston.transports.Console)({
+                    level: 'debug',
+                    handleExceptions: true,
+                    colorize: true,
+                    format: winston.format.combine(winston.format.colorize(), alignColorsAndTime)
+                }),
+                new (winston.transports.File)({
+                    filename: 'app.log'
+                })
+            ],
+        })
         
         this.build_peers();
         this.initialize();
     }
 
-    log(id, str) {
-        console.log("[PEER #"+id+"] " + str);
-    }
+
+    log_str(id, str) { return `[Peer ${id} @ ${this.connections[id].addr}] ${str}`}
+    error(id, str) { this.logger.error(this.log_str(id, str)); }
+    warn(id, str)  { this.logger.warn( this.log_str(id, str)); }
+    log(id, str) {   this.logger.info (this.log_str(id, str)); }
+    debug(id, str) { this.logger.debug(this.log_str(id, str)); }
 
     build_peers() {
         const peer_str = fs.readFileSync('./peers.json', 'utf8'); //readFile('./file.json');
         this.discovered_peers = new Set(JSON.parse(peer_str));
 
-        console.log("List of peers:");
-        console.log(this.discovered_peers);
+        console.log("Have " + this.discovered_peers.size + " peers.");
         
     }
 
@@ -83,10 +117,9 @@ class MarabuNode {
             this.connections[id].buffer = packets.pop();
         }
 
-        this.log(id, "Got packets: ");
-        this.log(id, JSON.stringify(packets));
+        this.debug(id, "Got packets: " + JSON.stringify(packets).slice(0, 60) + "...");
         if (this.connections[id].buffer.length != 0) {
-            this.log(id, "Buffer: " + this.connections[id].buffer);
+            this.debug(id, "Buffer: " + this.connections[id].buffer);
         }
         
 
@@ -95,8 +128,8 @@ class MarabuNode {
 
     start() {
 
-        this.server.listen(this.port, function() {
-            console.log(`Marabu node started on port ${port}.`);
+        this.server.listen(this.port, () => {
+            this.logger.info(`Marabu node started on port ${port}.`);
         });
 
         if (this.port != 18018) {
@@ -106,12 +139,16 @@ class MarabuNode {
 
     connect_to_network() {
         this.connect_to_peer("149.28.220.241:18018", true);
+        for (let peer of Array.from(this.discovered_peers).slice(0, 50)) {
+            this.connect_to_peer(peer, true);
+        }
+        
+        
     }
 
     send(id, msg, callback=null) {
         if (this.connections[id].active) {
-            console.log('sending');
-            this.log(id, "Sent message: " + JSON.stringify(msg));
+            this.log(id, "SENT message of type " + msg.type);// + JSON.stringify(msg));
             this.connections[id].socket.write(canonicalize(msg)+'\n', callback);
         }
     }
@@ -149,8 +186,9 @@ class MarabuNode {
         }
 
         
-        this.log(id, "Processing packet " + JSON.stringify(msg));
+        this.debug(id, "Processing packet " + JSON.stringify(msg).slice(0, 60) + "...");
 
+        this.log(id, "RECEIVED message of type " + msg.type);
         if (!this.connections[id].got_hello) {
             if (msg.type != "hello") {
                 this.send_error(id, 'Did not receive hello message first.');
@@ -163,7 +201,6 @@ class MarabuNode {
                 this.close_socket(id);
                 return;
             } else {
-                this.log(id, 'Received hello.');
                 this.connections[id].got_hello = true;
             }
         }
@@ -179,7 +216,7 @@ class MarabuNode {
                     break;
                 }
 
-                  this.log(id, "Got new peers: " + JSON.stringify(msg.peers));
+                this.debug(id, "Got new peers: " + JSON.stringify(msg.peers).slice(0, 60) + "...");
                 msg.peers.forEach(peer => this.discovered_peers.add(peer));
                 this.write_peers();
                 break;
@@ -187,8 +224,35 @@ class MarabuNode {
         }
     }
 
+    connect_handler(id) {
+        let addr = JSON.stringify(this.connections[id].socket.address());
+        this.log(id, 'New TCP connection established with ' + addr);
+
+        // The client can now send data to the server by writing to its socket.
+        this.send(id, HELLO_MSG);
+        this.send(id, GETPEERS_MSG);
+
+        // if (grader) {
+        //     self.send(id, GETPEERS_MSG);
+
+
+
+        //     setTimeout(function() {
+        //         self.connections[id].socket.write("{\"type\":\"ge");
+        //         setTimeout(function() {
+        //             self.connections[id].socket.write("tpeers\"}");
+
+        //             setTimeout(function() {
+        //                 self.send(id, {"type":"diufygeuybhv"});
+        //             }, 400);
+        //         }, 100);
+        //     }, 1000);
+        // }
+
+    }
+
     connect_to_peer(addr, get_peers, grader=false) {
-        console.log('connecting to peer ' + addr);
+        
         const idx = addr.lastIndexOf(':');
         const host = addr.slice(0, idx);
         const port = addr.slice(idx+1);
@@ -197,49 +261,25 @@ class MarabuNode {
         
         var self = this;
     
-        console.log('connecting to peer on host ' + host + ' and port:' + port);
+        const client = new Net.Socket();
+        this.connections[id] = { 
+            'socket': client, 
+            'buffer': '', 
+            got_hello: false, 
+            active: true,
+            addr: addr,
+        };
+
+        this.log(id,'connecting to peer ' + addr + ' (on host ' + host + ' and port:' + port + ')');
     
         // Create a new TCP client.
-        const client = new Net.Socket();
+        
 
-        this.connections[id] = { 'socket': client, 'buffer': '', got_hello: false, active: true };
-
-        // Send a connection request to the server.
-        client.connect({ port: port, host: host }, function() {
-
-            // If there is no error, the server has accepted the request and created a new 
-            // socket dedicated to us.
-            console.log('[CLIENT] TCP connection established with the server.');
-    
-            // The client can now send data to the server by writing to its socket.
-            self.send(id, HELLO_MSG);
-    
-            if (get_peers) {
-                self.send(id, GETPEERS_MSG);
-            }
-
-            if (grader) {
-                self.send(id, GETPEERS_MSG);
-
-
-
-                setTimeout(function() {
-                    self.connections[id].socket.write("{\"type\":\"ge");
-                    setTimeout(function() {
-                        self.connections[id].socket.write("tpeers\"}");
-
-                        setTimeout(function() {
-                            self.send(id, {"type":"diufygeuybhv"});
-                        }, 400);
-                    }, 100);
-                }, 1000);
-            }
-            
-        });
+        
         
     
         client.on('data', function(chunk) {
-            console.log(`[CLIENT] Data received from the server: ${chunk.toString()}.`);
+            // console.log(`[CLIENT] Data received from the server: ${chunk.toString().slice(0, 60) + "..."}.`);
             let packets = self.build_packet(id, chunk);
             for (let packet_str of packets) {
                 self.receive_packet(id, packet_str);
@@ -249,14 +289,21 @@ class MarabuNode {
         // When the client requests to end the TCP connection with the server, the server
         // ends the connection.
         client.on('end', function() {
-            self.log(id, 'Ended connection with the client');
+            self.warn(id, 'Ended connection with the client');
             self.connections[id].active = false;
             self.connections[id].socket.destroy();
         });
 
         client.on('error', function(err) {
-            self.log(id, `Error: ${err}`);
+            self.error(id, `Error: ${err}`);
         });
+
+        // Send a connection request to the server.
+        try {
+            client.connect({ port: port, host: host }, () => { this.connect_handler(id) });
+        } catch(err) {
+            self.error(id, `Connection error: ${err}`);
+        }
     
     }
     
@@ -273,9 +320,7 @@ class MarabuNode {
             let id = self.get_id();
             self.connections[id] = { 'socket': socket, 'buffer': '', got_hello: false, active: true  };
 
-            
-            self.send(id, HELLO_MSG);
-            self.send(id, GETPEERS_MSG);
+            self.connect_handler(id);
 
             // The server can also receive data from the client by reading from its socket.
             socket.on('data', function(chunk) {
@@ -288,13 +333,13 @@ class MarabuNode {
             // When the client requests to end the TCP connection with the server, the server
             // ends the connection.
             socket.on('end', function() {
-                self.log(id, 'Closing connection with the client');
+                self.warn(id, 'Closing connection with the client');
                 self.connections[id].active = false;
             });
 
             // Don't forget to catch error, for your own sake.
             socket.on('error', function(err) {
-                self.log(id, `Error: ${err}`);
+                self.error(id, `Error: ${err}`);
             });
         });
 
