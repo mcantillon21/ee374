@@ -56,7 +56,7 @@ export class MarabuNode {
 
     // When client requests connection to our node (acting as server)
     initialize() {
-        this.server.on('connection', function(socket) {
+        this.server.on('connection', (socket) => {
             console.log('A new connection has been established.');
             let id = this.get_id();
             this.connections[id] = new Connection(this, id, socket, '', socket.address().address, true, false, true);

@@ -122,8 +122,6 @@ export class Connection {
         if (this.buffer.length != 0) {
             this.debug("Buffer: " + this.buffer.slice(0, 30) + "..." + this.buffer.slice(this.buffer.length-30));
         }
-        
-
         return packets;
     }
 
@@ -180,5 +178,4 @@ export class Connection {
 
         }
     }
-
 }
