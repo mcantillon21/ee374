@@ -1,4 +1,4 @@
-import {Literal, Record, String, Array, Union, Static, Number} from 
+import {Literal, Record, String, Array, Union, Static, Number} from 'runtypes'
 
 
 export const ObjBlock = Record({
