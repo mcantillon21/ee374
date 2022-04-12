@@ -3,6 +3,8 @@ const canonicalize = require('canonicalize');
 import { logger } from './logger'
 import { isJsonString } from './utilities'
 import { Messages } from './messages'
+import {ObjBlock} from './Object'
+
 
 export class Connection {
 
@@ -97,6 +99,11 @@ export class Connection {
         let msg = { "type": "peers", "peers": peers};
         this.send(msg, callback);
     }
+
+    /*sendObject(ObjectID: string) {
+    *    let msg = {"type" : 'object', "object": objectList.getObject(ObjectID) }
+        this.send(msg,callback)
+    *}*/
 
     close_socket() {
         this.socket.end();
