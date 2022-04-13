@@ -4,6 +4,7 @@ import { logger } from './logger'
 import { isJsonString } from './utilities'
 import { Messages } from './messages'
 import {ObjBlock} from './Object'
+import {objectList} from './objList'
 
 
 export class Connection {
