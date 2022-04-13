@@ -1,10 +1,63 @@
 import * as ed from '@noble/ed25519'
+import { canonicalize } from 'json-canonicalize';
+import { ObjBlock, ObjCoinBase, ObjTransaction, ObjectofObject, ObjTransactionType} from './Object';
+import { objectList } from './objList';
+
+
+export async function validateTx(obj: ObjTransactionType){
+
+    let inputBalance = 0;
+    let outputBalance = 0;
+
+    //for each input
+    obj.inputs.forEach(input => {
+        // for each input validate outpoint
+        let outpointTX = objectList.getObj(input.outpoints.txid);
+        if (!objectList.hasObj(input.outpoints.txid)) {
+            throw new Error(`Outpoint with txid ${input.outpoints.txid} not found.`)
+        }
+        if (input.outpoints.index >= outpointTX.outputs.length()) {
+            throw new Error(`Outpoint index should be less than outputs in ${JSON.stringify(outpointTX)}`)
+        }
+
+        //verify signature (use package)
+        let publicKey = outpointTX.outputs[input.outpoints.index].pubkey
+        let signature = input.sig
+        let value = outpointTX.outputs[input.outpoints.index].value
+        const isValid = await ed.verify(signature, message, publicKey); //where do I get message?
+        if (!isValid){
+            throw new Error(`Transaction was not verified using signature ${signature}, message ${message}, and public key ${publicKey}`)
+        }
+
+        inputBalance += value
+    },
+
+    //for each output    
+    obj.outputs.forEach(output => {
+        if (output.pubkey.length != 64){ //needs to be 64 chars
+            throw new Error(`Output public key ${output.pubkey} must be 64 characters exactly.`)
+        }
+        if (output.value < 0){
+            throw new Error(`Output values must be non-negative. `)
+        }
+        
+        outputBalance += output.value
+    },
+
+    // Law of Conservation
+    if (inputBalance < outputBalance){
+        throw new Error(`Input must be at least equal or greater to Output value for ${JSON.stringify(obj)}`)
+    }
+
+    return true
+}
 
 export class Transaction {
     inputs;
     outputs;
 
     tx_validate() {
+
 
         // for each input
             // validate outpoint
