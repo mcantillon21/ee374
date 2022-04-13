@@ -182,7 +182,55 @@ export class Connection {
                 msg.peers.forEach(peer => this.node.discovered_peers.add(peer));
                 this.node.write_peers();
                 break;
+            case "object":
+                let obj = msg.object
+                if (obj.type == "transaction") {
+                    if (Object.keys(obj).length != 2) {
+                        // error;
+                    }
+                    if (obj["inputs"] && obj["height"]) {
+                        // coinbase
+                    } else if (obj["inputs"] && obj["outputs"]) {
+                        // regular transaction
+                        obj.inputs.forEach(input => {
+                            if (!input["outpoint"] || !input["sig"]) {
+                                // error
+                            }
+                            prev_tx;
+                            if (!input.outpoint.txid in obj_database) {
+                                // error
+                            }
+                            if (input.outpoint.index >= prev_tx.outputs.length) {
+                                // error
+                            }
+                            if (!ed.verify(input.sig, hex --> uint8 message, prev_tx.outputs[input.outpoint.index].pubkey) {
+                                // error
+                            }
 
+                            // sum input values
+                        });
+                        obj.outputs.foreach(output => {
+                            if (pubkey format not valid || output.value < 0) {
+                                // error
+                            }
+                            // sum output values
+                        });
+
+                        if (input sum < output sum) {
+                            // error
+                        }
+                        
+                    } else {
+                        // error
+                    }
+
+                    // reaching here means no error
+                    
+                    store in obj_database
+                    gossip using ihaveobject
+                }
+
+                break;
         }
     }
 }
